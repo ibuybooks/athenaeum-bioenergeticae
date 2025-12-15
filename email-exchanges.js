@@ -10,7 +10,6 @@
     // DOM Elements
     const searchInput = document.getElementById('search-input');
     const typeFilters = document.getElementById('type-filters');
-    const sectionFilter = document.getElementById('section-filter');
     const sourceFilter = document.getElementById('source-filter');
     const resetButton = document.getElementById('reset-filters');
     const entriesList = document.getElementById('entries-list');
@@ -22,9 +21,28 @@
     const modalBody = modal.querySelector('.modal-body');
     const modalClose = modal.querySelector('.modal-close');
     const modalOverlay = modal.querySelector('.modal-overlay');
+    const themeToggle = document.getElementById('theme-toggle');
+
+    // Theme Management
+    function initTheme() {
+        // Check localStorage for saved theme preference
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'light') {
+            document.body.classList.add('light-mode');
+        }
+    }
+
+    function toggleTheme() {
+        document.body.classList.toggle('light-mode');
+        const isLightMode = document.body.classList.contains('light-mode');
+        localStorage.setItem('theme', isLightMode ? 'light' : 'dark');
+    }
 
     // Initialize
     async function init() {
+        // Initialize theme first
+        initTheme();
+
         try {
             const response = await fetch('email-exchanges.json');
             const data = await response.json();
@@ -37,7 +55,6 @@
             totalCount.textContent = data.stats.total;
 
             // Populate filters
-            populateSelect(sectionFilter, data.sections.sort());
             populateSelect(sourceFilter, data.sources.sort());
 
             // Apply initial filter
@@ -68,6 +85,9 @@
     }
 
     function setupEventListeners() {
+        // Theme toggle
+        themeToggle.addEventListener('click', toggleTheme);
+
         // Search with debounce
         let searchTimeout;
         searchInput.addEventListener('input', () => {
@@ -79,7 +99,6 @@
         typeFilters.addEventListener('change', applyFilters);
 
         // Select filters
-        sectionFilter.addEventListener('change', applyFilters);
         sourceFilter.addEventListener('change', applyFilters);
 
         // Reset button
@@ -115,15 +134,11 @@
     function applyFilters() {
         const searchTerm = searchInput.value.toLowerCase().trim();
         const activeTypes = getActiveTypes();
-        const selectedSection = sectionFilter.value;
         const selectedSource = sourceFilter.value;
 
         filteredEntries = allEntries.filter(entry => {
             // Type filter
             if (!activeTypes.includes(entry.type)) return false;
-
-            // Section filter
-            if (selectedSection && entry.section !== selectedSection) return false;
 
             // Source filter
             if (selectedSource && entry.source !== selectedSource) return false;
@@ -219,7 +234,6 @@
                 ${bodyHtml}
             </div>
             <footer class="entry-meta">
-                ${entry.section ? `<span class="entry-meta-tag">Topic: ${entry.section}</span>` : ''}
                 ${entry.content.length > 1 ? `<span class="entry-meta-tag">${entry.content.length} items</span>` : ''}
             </footer>
         `;
@@ -270,7 +284,6 @@
     function resetFilters() {
         searchInput.value = '';
         typeFilters.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-        sectionFilter.value = '';
         sourceFilter.value = '';
         applyFilters();
     }
@@ -313,7 +326,6 @@
                 <span class="modal-type ${entry.type}">${typeLabels[entry.type]}</span>
                 <h2 class="modal-topic">${entry.topic || 'Untitled'}</h2>
                 <div class="modal-meta">
-                    ${entry.section ? `<span>Topic: ${entry.section}</span>` : ''}
                     ${entry.source ? `<span>Source: ${entry.source}</span>` : ''}
                 </div>
             </div>
@@ -324,7 +336,7 @@
                         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
                     </svg>
-                    Share
+                    Copy Link
                 </button>
                 <button class="share-button" id="copy-text">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -333,12 +345,21 @@
                     </svg>
                     Copy Text
                 </button>
+                <button class="share-button" id="save-image">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                    Save Image
+                </button>
             </div>
         `;
 
         // Setup share buttons
         document.getElementById('copy-link').addEventListener('click', () => copyLink(entry));
         document.getElementById('copy-text').addEventListener('click', () => copyText(entry));
+        document.getElementById('save-image').addEventListener('click', () => saveAsImage(entry));
 
         // Update URL
         history.pushState({ entryId: entry.id }, '', `?entry=${entry.id}`);
@@ -361,15 +382,11 @@
     function copyText(entry) {
         let text = '';
 
-        if (entry.topic) {
-            text += `Topic: ${entry.topic}\n\n`;
-        }
-
         entry.content.forEach((item, i) => {
             if (item.question) {
-                text += `Q: ${item.question}\n\n`;
+                text += `Q: ${stripHtml(item.question)}\n\n`;
             }
-            text += `A: ${item.answer}\n`;
+            text += `A: ${stripHtml(item.answer)}\n`;
             if (i < entry.content.length - 1) text += '\n---\n\n';
         });
 
@@ -381,11 +398,17 @@
     }
 
     async function copyToClipboard(text, buttonId) {
+        const button = document.getElementById(buttonId);
+        if (!button) {
+            console.error('Button not found:', buttonId);
+            return;
+        }
+
+        const originalText = button.innerHTML;
+
         try {
             await navigator.clipboard.writeText(text);
-            const button = document.getElementById(buttonId);
             button.classList.add('copied');
-            const originalText = button.innerHTML;
             button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!';
             setTimeout(() => {
                 button.classList.remove('copied');
@@ -393,6 +416,119 @@
             }, 2000);
         } catch (err) {
             console.error('Failed to copy:', err);
+            // Fallback for older browsers or non-HTTPS
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                button.classList.add('copied');
+                button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!';
+                setTimeout(() => {
+                    button.classList.remove('copied');
+                    button.innerHTML = originalText;
+                }, 2000);
+            } catch (fallbackErr) {
+                console.error('Fallback copy failed:', fallbackErr);
+                alert('Failed to copy to clipboard. Please copy manually.');
+            } finally {
+                document.body.removeChild(textArea);
+            }
+        }
+    }
+
+    async function saveAsImage(entry) {
+        const button = document.getElementById('save-image');
+        const originalText = button.innerHTML;
+        button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Generating...';
+        button.disabled = true;
+
+        try {
+            const typeLabels = {
+                qaexchange: 'Q&A Exchange',
+                standalonequote: 'Quote',
+                emailexchange: 'Email Exchange'
+            };
+
+            let contentHtml = '';
+
+            if (entry.type === 'standalonequote') {
+                const content = entry.content[0] || {};
+                contentHtml = `
+                    <div class="export-quote">${stripHtml(content.answer || '')}</div>
+                    <div class="export-attribution">— Ray Peat</div>
+                `;
+            } else {
+                contentHtml = entry.content.map((item, index) => `
+                    <div class="export-qa-item">
+                        ${item.question ? `
+                            <div class="export-question-label">Question${entry.content.length > 1 ? ` ${index + 1}` : ''}</div>
+                            <div class="export-question">${stripHtml(item.question)}</div>
+                        ` : ''}
+                        <div class="export-answer-label">Answer</div>
+                        <div class="export-answer">${stripHtml(item.answer)}</div>
+                    </div>
+                `).join('');
+                contentHtml += `<div class="export-attribution">— Ray Peat</div>`;
+            }
+
+            const exportContainer = document.getElementById('image-export-content');
+            exportContainer.innerHTML = `
+                <div class="export-card">
+                    <div class="export-header">
+                        <div class="export-context">Ray Peat On:</div>
+                        <div class="export-topic">${entry.topic || 'Untitled'}</div>
+                    </div>
+                    <div class="export-content">
+                        ${contentHtml}
+                    </div>
+                    <div class="export-footer">
+                        <div class="export-branding">Athenæum Bioenergeticæ</div>
+                    </div>
+                </div>
+            `;
+
+            // Temporarily position the export container on screen
+            const container = document.getElementById('image-export-container');
+            container.style.position = 'fixed';
+            container.style.left = '0';
+            container.style.top = '0';
+            container.style.zIndex = '-1';
+
+            const canvas = await html2canvas(exportContainer, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                width: 800
+            });
+
+            // Hide it again
+            container.style.position = 'absolute';
+            container.style.left = '-9999px';
+            container.style.top = '-9999px';
+
+            // Download the image
+            const link = document.createElement('a');
+            const filename = `ray-peat-${entry.id}-${Date.now()}.png`;
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+
+            button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Saved!';
+            button.classList.add('copied');
+            setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to generate image:', err);
+            button.innerHTML = originalText;
+            button.disabled = false;
+            alert('Failed to generate image. Please try again.');
         }
     }
 
