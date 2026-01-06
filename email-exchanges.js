@@ -486,7 +486,7 @@
                         ${contentHtml}
                     </div>
                     <div class="export-footer">
-                        <div class="export-branding">Athenæum Bioenergeticæ</div>
+                        <div class="export-branding"></div>
                     </div>
                 </div>
             `;
